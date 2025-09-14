@@ -76,16 +76,6 @@ Once all services are running:
 - **PostgreSQL**: localhost:5432 (app/app/appdb)
 - **Redis**: localhost:6379
 
-## Testing
-
-```bash
-# Run tests
-pytest tests/ -v
-
-# Run specific test files
-pytest tests/test_unit_user.py -v
-pytest tests/test_integration.py -v
-```
 
 ## Troubleshooting
 
