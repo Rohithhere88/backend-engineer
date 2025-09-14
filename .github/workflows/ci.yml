@@ -1,0 +1,77 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Create .env file
+      run: |
+        cp env.example .env
+        echo "DATABASE_URL=postgresql://app:app@postgres:5432/appdb" >> .env
+        echo "REDIS_URL=redis://redis:6379" >> .env
+        echo "RABBITMQ_URL=amqp://app:app@rabbitmq:5672/" >> .env
+        echo "JWT_SECRET_KEY=test-secret-key" >> .env
+        echo "JWT_ALGORITHM=HS256" >> .env
+        echo "JWT_ACCESS_TOKEN_EXPIRE_MINUTES=30" >> .env
+        echo "USER_SERVICE_URL=http://user-service:8001" >> .env
+        echo "PRODUCT_SERVICE_URL=http://product-service:8002" >> .env
+        echo "ORDER_SERVICE_URL=http://order-service:8003" >> .env
+    
+    - name: Build and start services
+      run: |
+        docker-compose up --build -d
+        echo "Waiting for services to be healthy..."
+        timeout 300 bash -c 'until docker-compose ps | grep -q "healthy"; do sleep 5; done'
+    
+    - name: Wait for services to be ready
+      run: |
+        echo "Waiting for all services to be ready..."
+        timeout 300 bash -c 'until curl -f http://localhost:8000/health > /dev/null 2>&1; do sleep 5; done'
+        timeout 300 bash -c 'until curl -f http://localhost:8001/health > /dev/null 2>&1; do sleep 5; done'
+        timeout 300 bash -c 'until curl -f http://localhost:8002/health > /dev/null 2>&1; do sleep 5; done'
+        timeout 300 bash -c 'until curl -f http://localhost:8003/health > /dev/null 2>&1; do sleep 5; done'
+        echo "All services are ready!"
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pytest-asyncio httpx
+    
+    - name: Run unit tests
+      run: |
+        pytest tests/test_unit_user.py -v
+    
+    - name: Run integration tests
+      run: |
+        pytest tests/test_integration.py -v
+    
+    - name: Run all tests
+      run: |
+        pytest tests/ -v
+    
+    - name: Check service logs on failure
+      if: failure()
+      run: |
+        echo "=== Docker Compose Logs ==="
+        docker-compose logs --tail=50
+        echo "=== Service Status ==="
+        docker-compose ps
+    
+    - name: Cleanup
+      if: always()
+      run: |
+        docker-compose down -v
+        docker system prune -f
